@@ -74,7 +74,7 @@ deploy_build () {
 
 	cp -v "$YOCTO_BUILD_DEPLOY/kernel_modules_headers.tar.gz" "$_deploy_dir" || true
 	cp -v "$YOCTO_BUILD_DEPLOY/kernel_source.tar.gz" "$_deploy_dir" || true
-	cp -v "$MACHINE.svg" "$_deploy_dir/logo.svg"
+	cp -v "$WORKSPACE/$MACHINE.svg" "$_deploy_dir/logo.svg"
 	if [ "${_compressed}" != 'true' ]; then
 		# uncompressed, just copy and we're done
 		cp -v $(readlink --canonicalize "$YOCTO_BUILD_DEPLOY/$_deploy_artifact") "$_deploy_dir/image/balena.img"
@@ -289,8 +289,20 @@ deploy_resinhup_to_registries() {
 
 	local _hostapp_image=$(docker load --quiet -i "$_resinhup_path" | cut -d: -f1 --complement | tr -d ' ')
 	docker tag "$_hostapp_image" "$_docker_repo:$_tag"
-	docker push $_docker_repo:$_tag
+	# docker push $_docker_repo:$_tag
+	deploy_to_balena $_docker_repo:$_tag
 	docker rmi -f "$_hostapp_image"
+}
+
+deploy_to_balena() {
+	local _local_image=$1
+
+	echo "[INFO] Logging into staging as balenaos"
+	export BALENARC_BALENA_URL=balena-staging.com
+	balena login --token $BALENAOS_TOKEN
+
+	echo "[INFO] Pushing $_local_image to balenaos/$SLUG"
+	balena deploy "balenaos/$SLUG" "$_local_image"
 }
 
 deploy_to_s3() {
@@ -365,6 +377,9 @@ EOSU
 }
 
 # Deploy
+# Test deploy
+deploy_resinhup_to_registries
+
 if [ "$deploy" = "yes" ]; then
 	echo "[INFO] Starting deployment..."
 	if [ "$DEVICE_STATE" != "DISCONTINUED" ]; then
