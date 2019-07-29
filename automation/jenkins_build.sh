@@ -302,7 +302,15 @@ deploy_to_balena() {
 	balena login --token $BALENAOS_TOKEN
 
 	echo "[INFO] Pushing $_local_image to balenaos/$SLUG"
-	balena deploy "balenaos/$SLUG" "$_local_image"
+	balena deploy "balenaos/$SLUG-test" "$_local_image"
+	balena tag set version $VERSION_HOSTOS
+	if [ "$DEVELOPMENT_IMAGE" = "yes" ]; then
+		_variant="development"
+	else
+		_variant="production"
+	fi
+	balena tag set variant $_variant
+	balena tag set status "Untested"
 }
 
 deploy_to_s3() {
