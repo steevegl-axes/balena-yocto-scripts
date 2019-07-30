@@ -264,7 +264,7 @@ fi
 echo "[INFO] Starting creating jenkins artifacts..."
 deploy_build "$WORKSPACE/deploy-jenkins" "true"
 
-deploy_resinhup_to_registries() {
+deploy_images {
 	local _docker_repo
 	local _variant=""
 	if [ "$deployTo" = "production" ]; then
@@ -278,37 +278,44 @@ deploy_resinhup_to_registries() {
 	# Make sure the tags are valid
 	# https://github.com/docker/docker/blob/master/vendor/github.com/docker/distribution/reference/regexp.go#L37
 	local _tag="$(echo $VERSION_HOSTOS$_variant-$SLUG | sed 's/[^a-z0-9A-Z_.-]/_/g')"
-	local _resinhup_path=$(readlink --canonicalize $WORKSPACE/build/tmp/deploy/images/$MACHINE/resin-image-$MACHINE.docker)
+	local _exported_image_path=$(readlink --canonicalize $WORKSPACE/build/tmp/deploy/images/$MACHINE/resin-image-$MACHINE.docker)
 
-	echo "[INFO] Pushing resinhup package to dockerhub $_docker_repo:$_tag..."
+	echo "[INFO] Pushing image to dockerhub $_docker_repo:$_tag..."
 
-	if [ ! -f $_resinhup_path ]; then
-		echo "[ERROR] The build didn't produce a resinhup package."
+	if [ ! -f $_exported_image_path ]; then
+		echo "[ERROR] The build didn't produce a valid image."
 		exit 1
 	fi
 
-	local _hostapp_image=$(docker load --quiet -i "$_resinhup_path" | cut -d: -f1 --complement | tr -d ' ')
+	local _hostapp_image=$(docker load --quiet -i "$_exported_image_path" | cut -d: -f1 --complement | tr -d ' ')
 	docker tag "$_hostapp_image" "$_docker_repo:$_tag"
-	# docker push $_docker_repo:$_tag
+
+	docker push $_docker_repo:$_tag
 	deploy_to_balena $_docker_repo:$_tag
+
 	docker rmi -f "$_hostapp_image"
 }
 
 deploy_to_balena() {
 	local _local_image=$1
-
-	echo "[INFO] Logging into staging as balenaos"
-	export BALENARC_BALENA_URL=balena-staging.com
-	balena login --token $BALENAOS_TOKEN
+	echo "[INFO] Logging into $deployTo as balenaos"
+	if [ "$deployTo" = "staging" ]; then
+		export BALENARC_BALENA_URL=balena-staging.com
+		balena login --token $BALENAOS_STAGING_TOKEN
+	else
+		balena login --token $BALENAOS_PRODUCTION_TOKEN
+	fi
 
 	echo "[INFO] Pushing $_local_image to balenaos/$SLUG"
-	balena deploy "balenaos/$SLUG-test" "$_local_image"
-	balena tag set version $VERSION_HOSTOS
+	balena deploy "balenaos/$SLUG" "$_local_image"
+
 	if [ "$DEVELOPMENT_IMAGE" = "yes" ]; then
 		_variant="development"
 	else
 		_variant="production"
 	fi
+
+	balena tag set version $VERSION_HOSTOS
 	balena tag set variant $_variant
 	balena tag set status "Untested"
 }
@@ -385,13 +392,11 @@ EOSU
 }
 
 # Deploy
-# Test deploy
-deploy_resinhup_to_registries
 
 if [ "$deploy" = "yes" ]; then
 	echo "[INFO] Starting deployment..."
 	if [ "$DEVICE_STATE" != "DISCONTINUED" ]; then
-		deploy_resinhup_to_registries
+		deploy_images
 	fi
 
 	if [ "$deployTo" = "production" ]; then
